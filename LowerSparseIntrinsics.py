@@ -71,6 +71,7 @@ class LowerSparseIntrinsics:
         return csr_matrix
 
     @staticmethod
+    # row by row multiply from: "A Systematic Survey of General Sparse Matrix-Matrix Multiplication" section 3.2
     def csr_matrix_multiplication(sparse_a, sparse_b):
         A_values = sparse_a.csr_matrix.values
         A_col_indices = sparse_a.csr_matrix.col_indices
