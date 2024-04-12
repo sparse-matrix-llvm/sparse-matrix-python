@@ -4,136 +4,160 @@ import numpy as np
 class LowerSparseIntrinsics:
     def __init__(self, dense_matrix=None, num_rows=0, num_cols=0):
         self.shape_info = self.ShapeInfo(num_rows, num_cols)
-        self.csr_matrix = self.CSRMatrix()
+        self.csc_matrix = self.CSCMatrix()
         if dense_matrix:
-            self.dense_to_csr(dense_matrix)
+            self.dense_to_csc(dense_matrix)
     
     class ShapeInfo:
         def __init__(self, num_rows=0, num_cols=0):
             self.num_rows = num_rows
             self.num_cols = num_cols
     
-    class CSRMatrix:
+    class CSCMatrix:
         def __init__(self):
             # these would all be small vectors just like in normal matrix
             self.values = []
-            self.col_indices = []
-            self.row_pointers = [0]
+            self.row_indices = []
+            self.col_pointers = [0]
         
         def __repr__(self):
-            return f"CSR_Matrix(name={self.values}, details={self.col_indices}, row_pointers{self.row_pointers})"
+            return f"csc_matrix(values={self.values}, row_indices={self.row_indices}, col_pointers{self.col_pointers})"
 
         def __eq__(self, other):
-            return self.values == other.values and self.col_indices == other.col_indices and self.row_pointers == other.row_pointers
+            return self.values == other.values and self.row_indices == other.row_indices and self.col_pointers == other.col_pointers
         
     
-    def dense_to_csr(self, dense_matrix):
-        for row in dense_matrix:
-            for col_index, value in enumerate(row):
+    def dense_to_csc(self, dense_matrix):
+        for column in dense_matrix:
+            column_nonzeros = 0
+            for row_index, value in enumerate(column):
                 if value != 0:
-                    self.csr_matrix.values.append(value)
-                    self.csr_matrix.col_indices.append(col_index)
-            self.csr_matrix.row_pointers.append(len(self.csr_matrix.values))
+                    self.csc_matrix.values.append(value)
+                    self.csc_matrix.row_indices.append(row_index)
+                    column_nonzeros += 1
+            self.csc_matrix.col_pointers.append(self.csc_matrix.col_pointers[-1] + column_nonzeros)
 
-    def csr_to_dense(self):
-        num_rows = self.shape_info.num_rows
-        num_cols = self.shape_info.num_cols
-        dense_matrix = [[0 for _ in range(num_cols)] for _ in range(num_rows)]
+    def csc_to_column_vectors(csc_matrix):
+        num_cols = csc_matrix.shape_info.num_cols
+        num_rows = csc_matrix.shape_info.num_rows
+        column_vectors = [[] for _ in range(num_cols)]
     
-        for row in range(num_rows):
-            start_index = self.csr_matrix.row_pointers[row]
-            end_index = self.csr_matrix.row_pointers[row + 1]
+        # Process each column defined by col_pointers
+        for col in range(num_cols):
+            start_index = csc_matrix.csc_matrix.col_pointers[col]
+            end_index = csc_matrix.csc_matrix.col_pointers[col + 1]
+
+            # Create a temporary column with all zeros
+            column = [0] * num_rows
+
+            # Fill in the non-zero values from the CSC data
             for i in range(start_index, end_index):
-                col = self.csr_matrix.col_indices[i]
-                value = self.csr_matrix.values[i]
-                dense_matrix[row][col] = value
-    
-        return dense_matrix
+                row = csc_matrix.csc_matrix.row_indices[i]
+                value = csc_matrix.csc_matrix.values[i]
+                column[row] = value
 
-    def csr_to_flat_array(self):
-        # we can get len(self.row_pointers) and len(self.values) from SmallVectors.size()
-        flat_array = [len(self.csr_matrix.row_pointers), len(self.csr_matrix.values)] + self.csr_matrix.row_pointers + self.csr_matrix.col_indices + self.csr_matrix.values
+            # Append the populated column to the list of column vectors
+            column_vectors[col] = column
+
+        return column_vectors
+
+
+    def csc_to_flat_array(self):
+        # we can get len(self.col_pointers) and len(self.values) from SmallVectors.size()
+        flat_array = [len(self.csc_matrix.col_pointers), len(self.csc_matrix.values)] + self.csc_matrix.col_pointers + self.csc_matrix.row_indices + self.csc_matrix.values
         return flat_array
     
-    def flat_array_to_csr(self,flat_array):
-        len_row_pointers = flat_array[0]
-        len_values_col_indices = flat_array[1]
+    def flat_array_to_csc(self,flat_array):
+        len_col_pointers = flat_array[0]
+        len_values_row_indices = flat_array[1]
         
-        row_pointers = flat_array[2 : 2 + len_row_pointers]
-        col_indices = flat_array[2 + len_row_pointers : 2 + len_row_pointers + len_values_col_indices]
-        values = flat_array[2 + len_row_pointers + len_values_col_indices :]
+        col_pointers = flat_array[2 : 2 + len_col_pointers]
+        row_indices = flat_array[2 + len_col_pointers : 2 + len_col_pointers + len_values_row_indices]
+        values = flat_array[2 + len_col_pointers + len_values_row_indices :]
         
-        csr_matrix = self.CSRMatrix()
-        csr_matrix.row_pointers = row_pointers
-        csr_matrix.col_indices = col_indices
-        csr_matrix.values = values
+        csc_matrix = self.CSCMatrix()
+        csc_matrix.col_pointers = col_pointers
+        csc_matrix.row_indices = row_indices
+        csc_matrix.values = values
         
-        return csr_matrix
+        return csc_matrix
 
     @staticmethod
-    # row by row multiply from: "A Systematic Survey of General Sparse Matrix-Matrix Multiplication" section 3.2
-    def csr_matrix_multiplication(sparse_a, sparse_b):
-        A_values = sparse_a.csr_matrix.values
-        A_col_indices = sparse_a.csr_matrix.col_indices
-        A_row_pointers = sparse_a.csr_matrix.row_pointers
+    # # col by col multiply from: "A Systematic Survey of General Sparse Matrix-Matrix Multiplication" section 3.5
+    def csc_matrix_multiplication(sparse_a, sparse_b):
+        A_values = sparse_a.csc_matrix.values
+        A_row_indices = sparse_a.csc_matrix.row_indices
+        A_col_pointers = sparse_a.csc_matrix.col_pointers
 
-        B_values = sparse_b.csr_matrix.values
-        B_col_indices = sparse_b.csr_matrix.col_indices
-        B_row_pointers = sparse_b.csr_matrix.row_pointers
+        B_values = sparse_b.csc_matrix.values
+        B_row_indices = sparse_b.csc_matrix.row_indices
+        B_col_pointers = sparse_b.csc_matrix.col_pointers
 
         C_values = []
-        C_col_indices = []
-        C_row_pointers = [0]
-    
-        for i in range(len(A_row_pointers) - 1):
-            # Initialize a dictionary for the current row of C
-            C_row = {}
-            # Go through all non-zero elements of the i-th row of A
-            for a_idx in range(A_row_pointers[i], A_row_pointers[i + 1]):
-                a = A_values[a_idx]
-                k = A_col_indices[a_idx]
-                # Multiply the non-zero element a with the entire k-th row of B
-                for b_idx in range(B_row_pointers[k], B_row_pointers[k + 1]):
-                    b = B_values[b_idx]
-                    j = B_col_indices[b_idx]
-                    # Accumulate the product in the corresponding entry of C
-                    C_row[j] = C_row.get(j, 0) + a * b
-            # Add the non-zero entries of the current row of C to the CSR arrays
-            for j, c in sorted(C_row.items()):
-                if c != 0:
-                    C_values.append(c)
-                    C_col_indices.append(j)
-            C_row_pointers.append(len(C_values))
+        C_row_indices = []
+        C_col_pointers = [0]  # The first column pointer is always 0
 
+        for j in range(sparse_b.shape_info.num_cols):
+            # Dictionary to hold the non-zero values of column j of C
+            column_values = {}
+
+            # Multiply the non-zero entries of column j in B by the corresponding columns in A
+            for k_index in range(B_col_pointers[j], B_col_pointers[j + 1]):
+                k = B_row_indices[k_index]
+                bkj = B_values[k_index]
+                for i_index in range(A_col_pointers[k], A_col_pointers[k + 1]):
+                    i = A_row_indices[i_index]
+                    aik = A_values[i_index]
+                    column_values[i] = column_values.get(i, 0) + aik * bkj
+
+            # Sort the row indices and append the values and row indices to the C arrays
+            for i in sorted(column_values):
+                C_values.append(column_values[i])
+                C_row_indices.append(i)
+
+            # Update the column pointers for each column processed
+            C_col_pointers.append(len(C_values))
+
+        # Construct the resulting CSC matrix
         c_sparse = LowerSparseIntrinsics()
-        c_sparse.csr_matrix.values = C_values
-        c_sparse.csr_matrix.row_pointers = C_row_pointers
-        c_sparse.csr_matrix.col_indices = C_col_indices
+        c_sparse.csc_matrix.values = C_values
+        c_sparse.csc_matrix.row_indices = C_row_indices
+        c_sparse.csc_matrix.col_pointers = C_col_pointers
         c_sparse.shape_info.num_rows = sparse_a.shape_info.num_rows
         c_sparse.shape_info.num_cols = sparse_b.shape_info.num_cols
+
         return c_sparse
+
     
     
 if __name__ == "__main__":
+    """
+    row representation
+    [1, 0, 0, 0],
+    [0, 2, 0, 3],
+    [4, 0, 5, 0],
+    [0, 0, 0, 6]
+    """
     dense_matrix = [
-        [1, 0, 0, 0],
-        [0, 2, 0, 3],
-        [4, 0, 5, 0],
-        [0, 0, 0, 6]
+    [1, 0, 4, 0],  # Column 1
+    [0, 2, 0, 0],  # Column 2
+    [0, 0, 5, 0],  # Column 3
+    [0, 3, 0, 6]   # Column 4
     ]
 
-    csr_matrix = LowerSparseIntrinsics(dense_matrix, len(dense_matrix), len(dense_matrix[0]))
-    flat_array = csr_matrix.csr_to_flat_array()
-    new_csr_matrix = csr_matrix.flat_array_to_csr(flat_array)
+    csc_matrix = LowerSparseIntrinsics(dense_matrix, len(dense_matrix), len(dense_matrix[0]))
+    flat_array = csc_matrix.csc_to_flat_array()
+    new_csc_matrix = csc_matrix.flat_array_to_csc(flat_array)
 
-    assert new_csr_matrix == csr_matrix.csr_matrix
+    assert new_csc_matrix == csc_matrix.csc_matrix
 
-    csr_matrix_2 = LowerSparseIntrinsics(dense_matrix, len(dense_matrix), len(dense_matrix[0]))
-    res = csr_matrix.csr_matrix_multiplication(csr_matrix, csr_matrix_2)
-    res_dense = res.csr_to_dense()
+    csc_matrix_2 = LowerSparseIntrinsics(dense_matrix, len(dense_matrix), len(dense_matrix[0]))
+    res = csc_matrix.csc_matrix_multiplication(csc_matrix, csc_matrix_2)
+    print(res.csc_matrix)
+    res_dense = res.csc_to_column_vectors()
 
     print(res_dense)
 
-    dense_a = np.array(dense_matrix)
-    dense_b = np.array(dense_matrix)
-    print(dense_a @ dense_b)
+    dense_a = np.array(dense_matrix).T
+    dense_b = np.array(dense_matrix).T
+    print((dense_a @ dense_b).T)

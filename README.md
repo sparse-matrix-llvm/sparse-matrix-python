@@ -1,1 +1,1 @@
-Testing ground for CSR representation in Python
+Testing ground for CSC representation in Python
