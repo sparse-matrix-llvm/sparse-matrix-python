@@ -64,16 +64,18 @@ class LowerSparseIntrinsics:
 
     def csc_to_flat_array(self):
         # we can get len(self.col_pointers) and len(self.values) from SmallVectors.size()
-        flat_array = [len(self.csc_matrix.col_pointers), len(self.csc_matrix.values)] + self.csc_matrix.col_pointers + self.csc_matrix.row_indices + self.csc_matrix.values
+        flat_array = [self.csc_matrix.col_pointers[-1]] + self.csc_matrix.col_pointers + self.csc_matrix.row_indices + self.csc_matrix.values
         return flat_array
     
-    def flat_array_to_csc(self,flat_array):
-        len_col_pointers = flat_array[0]
-        len_values_row_indices = flat_array[1]
-        
-        col_pointers = flat_array[2 : 2 + len_col_pointers]
-        row_indices = flat_array[2 + len_col_pointers : 2 + len_col_pointers + len_values_row_indices]
-        values = flat_array[2 + len_col_pointers + len_values_row_indices :]
+    def flat_array_to_csc(self,flat_array, num_rows, num_cols):
+        nnz = flat_array[0]
+        offset_col_pointers = 1
+        offset_row_indices = offset_col_pointers + num_cols + 1
+        offset_values = offset_row_indices + nnz
+    
+        col_pointers = flat_array[offset_col_pointers:offset_row_indices]
+        row_indices = flat_array[offset_row_indices:offset_values]
+        values = flat_array[offset_values:offset_values + nnz]
         
         csc_matrix = self.CSCMatrix()
         csc_matrix.col_pointers = col_pointers
@@ -147,7 +149,7 @@ if __name__ == "__main__":
 
     csc_matrix = LowerSparseIntrinsics(dense_matrix, len(dense_matrix), len(dense_matrix[0]))
     flat_array = csc_matrix.csc_to_flat_array()
-    new_csc_matrix = csc_matrix.flat_array_to_csc(flat_array)
+    new_csc_matrix = csc_matrix.flat_array_to_csc(flat_array, len(dense_matrix), len(dense_matrix[0]))
 
     assert new_csc_matrix == csc_matrix.csc_matrix
 
